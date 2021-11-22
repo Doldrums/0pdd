@@ -18,32 +18,36 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'mail'
-require_relative 'puzzles'
-require_relative 'diff'
+require 'octokit'
 
 #
-# One job.
+# Github client
+# API: http://octokit.github.io/octokit.rb/method_list.html
 #
-class Job
-  def initialize(vcs, storage, tickets)
-    @vcs = vcs
-    @storage = storage
-    @tickets = tickets
-  end
-
-  def proceed
-    @vcs.repo.push
-    before = @storage.load
-    Puzzles.new(@vcs.repo, @storage).deploy(@tickets)
-    return if opts.include?('on-scope')
-    Diff.new(before, @storage.load).notify(@tickets)
-  end
-
-  private
-
-  def opts
-    array = @vcs.repo.config.dig('alerts', 'suppress')
-    array.nil? || !array.is_a?(Array) ? [] : array
+class GithubClient
+  def self.new(config = {})
+    begin
+      client = if config['testing']
+                 require_relative '../../test/fake_github'
+                 FakeGithub.new
+               else
+                 args = {}
+                 args[:access_token] = config['github']['token'] if config['github']
+                 Octokit.connection_options = {
+                   request: {
+                     timeout: 20,
+                     open_timeout: 20
+                   }
+                 }
+                 Octokit.auto_paginate = true
+                 Octokit::Client.new(args)
+               end
+      TracePoint.new(:call) do |tp|
+        puts "#{tp.defined_class}##{tp.method_id}()" if tp.defined_class == client.class
+      end.enable
+      client
+    rescue Octokit::NotFound
+      puts 'Issue with account not found'
+    end
   end
 end

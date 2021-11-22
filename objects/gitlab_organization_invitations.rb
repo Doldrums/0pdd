@@ -18,32 +18,20 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'mail'
-require_relative 'puzzles'
-require_relative 'diff'
+require_relative 'gitlab_organization_invitation'
 
 #
-# One job.
+# Invitations to join Gitlab organizations
 #
-class Job
-  def initialize(vcs, storage, tickets)
-    @vcs = vcs
-    @storage = storage
-    @tickets = tickets
+class GitlabOrganizationInvitations
+  def initialize(gitlab)
+    @gitlab = gitlab
   end
 
-  def proceed
-    @vcs.repo.push
-    before = @storage.load
-    Puzzles.new(@vcs.repo, @storage).deploy(@tickets)
-    return if opts.include?('on-scope')
-    Diff.new(before, @storage.load).notify(@tickets)
-  end
-
-  private
-
-  def opts
-    array = @vcs.repo.config.dig('alerts', 'suppress')
-    array.nil? || !array.is_a?(Array) ? [] : array
+  def all
+    @gitlab.organization_memberships(state: 'pending').collect do |membership|
+      GitlabOrganizationInvitation.new(membership, @gitlab)
+    end
   end
 end
+

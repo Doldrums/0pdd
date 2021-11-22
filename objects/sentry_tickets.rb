@@ -18,7 +18,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'octokit'
 require 'mail'
 require 'raven'
 require_relative 'user_error'
@@ -74,8 +73,8 @@ class SentryTickets
       text_part do
         content_type 'text/plain; charset=UTF-8'
         body "Hi,\n\n\
-#{e.message}\n\n
-#{e.backtrace.join("\n")}\n\n
+             #{e.message}\n\n
+             #{e.backtrace.join("\n")}\n\n
 Thanks,\n\
 0pdd"
       end

@@ -18,133 +18,63 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'fileutils'
-require 'pdd'
-require 'tmpdir'
-require 'tempfile'
-require 'yaml'
-require 'shellwords'
-require_relative 'exec'
-require_relative 'user_error'
-
 #
-# Repository in Git
+# Tickets that email when submitted or closed.
 #
-class GitRepo
-  def initialize(
-    name:, dir: Dir.mktmpdir('0pdd'),
-    uri: "git@github.com:#{name}",
-    id_rsa: '',
-    master: 'master'
-  )
-    @name = name
-    @path = "#{dir}/#{@name}"
-    @uri = uri
-    @id_rsa = id_rsa
-    @master = master
+class EmailedTickets
+  def initialize(vcs, tickets)
+    @vcs = vcs
+    @tickets = tickets
   end
 
-  def lock
-    "/tmp/0pdd-locks/#{@name}.txt"
+  def notify(issue, message)
+    @tickets.notify(issue, message)
   end
 
-  def config
-    f = File.join(@path, '.0pdd.yml')
-    if File.exist?(f)
-      YAML.safe_load(File.open(f))
-    else
-      {}
-    end
-  end
-
-  def xml
-    raise "Path is absent: #{@path}" unless File.exist?(@path)
-    Tempfile.open do |f|
-      begin
-        Exec.new("cd #{@path} && pdd -v -f #{f.path}").run
-      rescue Exec::Error => e
-        raise UserError, e.message if e.code == 1
-        raise e
+  def submit(puzzle)
+    done = @tickets.submit(puzzle)
+    Mail.new do
+      from '0pdd <no-reply@0pdd.com>'
+      to 'admin@0pdd.com'
+      subject "#{r}##{done[:number]} opened"
+      text_part do
+        content_type 'text/plain; charset=UTF-8'
+        body "Hey,\n\n\
+Issue #{done[:href]} opened.\n\n\
+ID: #{puzzle.xpath('id')[0].text}\n\
+File: #{puzzle.xpath('file')[0].text}\n\
+Lines: #{puzzle.xpath('lines')[0].text}\n\
+Here: #{@vcs.file_link(puzzle.xpath('file')[0].text)}\
+##{puzzle.xpath('lines')[0].text.gsub(/(\d+)/, 'L\1')}\n\
+Author: #{puzzle.xpath('author')[0].text}\n\
+Time: #{puzzle.xpath('time')[0].text}\n\
+Estimate: #{puzzle.xpath('estimate')[0].text} minutes\n\
+Role: #{puzzle.xpath('role')[0].text}\n\n\
+Body: #{puzzle.xpath('body')[0].text}\n\n\
+Thanks,\n\
+0pdd"
       end
-      Nokogiri::XML(File.read(f))
+    end.deliver!
+    done
+  end
+
+  def close(puzzle)
+    done = @tickets.close(puzzle)
+    if done
+      issue = puzzle.xpath('issue')[0].text
+      Mail.new do
+        from '0pdd <no-reply@0pdd.com>'
+        to 'admin@0pdd.com'
+        subject "#{@vcs.repo.name}##{issue} closed"
+        text_part do
+          content_type 'text/plain; charset=UTF-8'
+          body "Hey,\n\n\
+Issue #{@vcs.issue_link} closed.\n\n\
+Thanks,\n\
+0pdd"
+        end
+      end.deliver!
     end
-  end
-
-  def push
-    if File.exist?(@path)
-      pull
-    else
-      clone
-    end
-  end
-
-  private
-
-  def clone
-    prepare_key
-    prepare_git
-    Exec.new(
-      'git clone',
-      '--depth=1',
-      @uri,
-      @path,
-      '--quiet'
-    ).run
-  end
-
-  def pull
-    prepare_key
-    prepare_git
-    Exec.new(
-      [
-        "cd #{@path}",
-        "master=#{Shellwords.escape(@master)}",
-        'git config --local core.autocrlf false',
-        'git reset origin/${master} --hard --quiet',
-        'git clean --force -d',
-        'git fetch --quiet',
-        'git checkout origin/${master}',
-        'git rebase --abort || true',
-        'git rebase --autostash --strategy-option=theirs origin/${master}'
-      ].join(' && ')
-    ).run
-  end
-
-  def prepare_key
-    dir = "#{Dir.home}/.ssh"
-    return if File.exist?(dir)
-    FileUtils.mkdir_p(dir)
-    IO.write("#{dir}/id_rsa", @id_rsa) unless @id_rsa.empty?
-    Exec.new(
-      [
-        'echo "Host *" > ~/.ssh/config',
-        'echo "  StrictHostKeyChecking no" >> ~/.ssh/config',
-        'echo "  UserKnownHostsFile=~/.ssh/known_hosts" >> ~/.ssh/config',
-        'chmod -R 600 ~/.ssh/*'
-      ].join(';')
-    ).run
-  end
-
-  def prepare_git
-    Exec.new(
-      [
-        'GIT=$(git --version)',
-        'if [[ "${GIT}" != "git version 2."* ]]',
-        'then echo "Git is too old: ${GIT}"',
-        'exit -1',
-        'fi'
-      ].join(';')
-    ).run
-    return if ENV['RACK_ENV'] == 'test'
-    Exec.new(
-      [
-        'if ! git config --get --global user.email',
-        'then git config --global user.email "server@0pdd.com"',
-        'fi',
-        'if ! git config --get --global user.name',
-        'then git config --global user.name "0pdd.com"',
-        'fi'
-      ].join(';')
-    ).run
+    done
   end
 end

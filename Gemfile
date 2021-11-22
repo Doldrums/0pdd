@@ -42,3 +42,4 @@ gem 'sinatra-contrib', '2.1.0'
 gem 'sprockets', '4.0.2'
 gem 'test-unit', '3.4.0', require: false
 gem 'xcop', '0.6.2'
+gem 'gitlab', '4.17.0'

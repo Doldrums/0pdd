@@ -18,32 +18,34 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'mail'
-require_relative 'puzzles'
-require_relative 'diff'
+require 'gitlab'
 
 #
-# One job.
+# Gitlab client
+# API: https://github.com/NARKOZ/gitlab
 #
-class Job
-  def initialize(vcs, storage, tickets)
-    @vcs = vcs
-    @storage = storage
-    @tickets = tickets
-  end
-
-  def proceed
-    @vcs.repo.push
-    before = @storage.load
-    Puzzles.new(@vcs.repo, @storage).deploy(@tickets)
-    return if opts.include?('on-scope')
-    Diff.new(before, @storage.load).notify(@tickets)
-  end
-
-  private
-
-  def opts
-    array = @vcs.repo.config.dig('alerts', 'suppress')
-    array.nil? || !array.is_a?(Array) ? [] : array
+class Gitlab
+  def self.new(config = {})
+    begin
+      client = if config['testing']
+                 throw("Does not support Gitlab")
+               else
+                 token = config['gitlab']['token'] if config['gitlab']
+                 Gitlab.client(
+                   endpoint: 'https://gitlab.com/api/v4',
+                   private_token: token,
+                   httparty: {
+                     headers: { 'Cookie' => 'gitlab_canary=true' }
+                   }
+                 )
+               end
+      TracePoint.new(:call) do |tp|
+        puts "#{tp.defined_class}##{tp.method_id}()" if tp.defined_class == client.class
+      end.enable
+      client
+    rescue Gitlab::Error::MissingCredentials
+      puts 'Issue with credentials'
+    end
   end
 end
+

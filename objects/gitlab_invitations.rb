@@ -18,36 +18,34 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-require 'octokit'
-
 #
-# Github client
-# API: http://octokit.github.io/octokit.rb/method_list.html
+# Invitations in Gitlab
 #
-class Github
-  def initialize(config = {})
-    @config = config
+class GitlabInvitations
+  def initialize(gitlab)
+    @gitlab = gitlab
   end
 
-  def client
-    client = if @config['testing']
-      require_relative '../test/fake_github'
-      FakeGithub.new
-    else
-      args = {}
-      args[:access_token] = @config['github']['token'] if @config['github']
-      Octokit.connection_options = {
-        request: {
-          timeout: 20,
-          open_timeout: 20
-        }
-      }
-      Octokit.auto_paginate = true
-      Octokit::Client.new(args)
+  def accept
+    @gitlab.user_repository_invitations.each do |i|
+      break if @gitlab.rate_limit.remaining < 1000
+      puts "Repository invitation #{i['id']} accepted" if @gitlab.accept_repository_invitation(i['id'])
     end
-    TracePoint.new(:call) do |tp|
-      puts "#{tp.defined_class}##{tp.method_id}()" if tp.defined_class == client.class
-    end.enable
-    client
+  end
+
+  def accept_orgs
+    @gitlab.organization_memberships('state' => 'pending').each do |m|
+      break if @gitlab.rate_limit.remaining < 1000
+      org = m['organization']['login']
+      begin
+        @gitlab.update_organization_membership(org, 'state' => 'active')
+        puts "Invitation for @#{org} accepted"
+      rescue Gitlab::Error::NotFound => e
+        puts "Failed to join @#{org} organization: #{e.message}"
+        @gitlab.remove_organization_membership(org)
+        puts "Membership in @#{org} organization removed"
+      end
+    end
   end
 end
+
