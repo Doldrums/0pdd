@@ -24,7 +24,7 @@ require_relative 'base'
 require_relative '../clients/gitlab'
 
 #
-# Gitlab client
+# Github client
 # API: https://github.com/NARKOZ/gitlab
 #
 class GithubHelper
